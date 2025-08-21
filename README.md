@@ -186,4 +186,4 @@ sudo apt install YOUR-PACKAGE
 
 ---
 
-Made with ❤️ and ☕ in London
+<p align="center">Made with ❤️ and ☕ in London</p>
