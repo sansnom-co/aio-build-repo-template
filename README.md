@@ -184,6 +184,6 @@ sudo apt install YOUR-PACKAGE
 3. **Development Builds**: Pushes to main create dev releases
 4. **GPG Key**: Keep your private key secure, never commit it
 
-## License
+---
 
-MIT License - feel free to use this template for your projects!
+Made with ❤️ and ☕ in London
