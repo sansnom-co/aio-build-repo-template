@@ -1,17 +1,32 @@
-# Static Binary APT Repository Template
+# All in One Binary APT Repository Template
 
-This template provides a complete solution for building statically linked binaries from source and distributing them via an APT repository hosted on GitHub Pages.
+**A complete template for building, packaging, and distributing static binaries with GitHub Actions.**
 
-## Features
+This repository provides a production-ready framework for:
 
-- ✅ Build static binaries from any source repository
-- ✅ Automatic .deb and .rpm package creation
-- ✅ GPG signing for security
-- ✅ APT repository hosted on GitHub Pages
-- ✅ Security scanning with Trivy
-- ✅ GitHub Actions automation
-- ✅ Support for both APT 2.x and APT 3.0 formats
-- ✅ CalVer versioning (YY.MM.patch)
+* **Building**: Generic build system supporting Go, C/C++, Rust, and Make-based projects.
+* **Packaging**: Automatic `.deb` and `.rpm` creation with GPG signing.
+* **Releasing**: GitHub Actions workflows for CI/CD, artifact publishing, and GitHub Releases.
+* **APT Repository Hosting**: Fully automated Debian/Ubuntu APT repo published via GitHub Pages.
+* **Security**: Static linking verification, vulnerability scans (Trivy), and signed packages.
+
+### Why use this template?
+
+* No infrastructure cost — everything runs on GitHub.
+* Professional distribution — packages install via standard `apt install`.
+* Secure and maintainable — GPG signing, reproducible builds, vulnerability scanning.
+* Flexible — drop in your project, customise build commands, and you’re done.
+
+### Features
+
+- Build static binaries from any source repository
+- Automatic .deb and .rpm package creation
+- GPG signing for security
+- APT repository hosted on GitHub Pages
+- Security scanning with Trivy
+- GitHub Actions automation
+- Support for both APT 2.x and APT 3.0 formats
+- CalVer versioning (YY.MM.patch)
 
 ## Quick Start
 
@@ -168,22 +183,6 @@ sudo apt install YOUR-PACKAGE
 2. **Version Format**: Tags should be `vYY.MM.PATCH` (e.g., `v24.12.0`)
 3. **Development Builds**: Pushes to main create dev releases
 4. **GPG Key**: Keep your private key secure, never commit it
-
-## Troubleshooting
-
-### APT Repository Not Working
-- Ensure GitHub Pages is enabled on `gh-pages` branch
-- Check that GPG key is accessible at `/public_key.asc`
-- Verify Release file has correct checksums with sizes
-
-### Build Failures
-- Check build dependencies are installed
-- Verify static linking flags are correct
-- Review Trivy scan results for vulnerabilities
-
-### Package Installation Issues
-- Ensure binaries have executable permissions
-- Check package dependencies (default: ca-certificates)
 
 ## License
 
