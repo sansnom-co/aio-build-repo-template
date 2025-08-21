@@ -1,0 +1,227 @@
+name: Build, Package, and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: my-tools  # Change this to your package name
+
+jobs:
+  build_binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            pkg-config
+          # Add your specific dependencies here
+
+      - name: Build static binaries
+        run: |
+          chmod +x build_static_tools.sh
+          ./build_static_tools.sh
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-binaries
+          path: static_binaries/
+          retention-days: 7
+
+  scan_binaries:
+    needs: build_binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: static-binaries
+          path: static_binaries/
+
+      - name: Run Trivy security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'static_binaries/'
+          format: 'table'
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+
+  package_binaries:
+    needs: scan_binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: static-binaries
+          path: static_binaries/
+
+      - name: Ensure binaries are executable
+        run: |
+          chmod +x static_binaries/*
+          ls -la static_binaries/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(date +%y.%m).$GITHUB_RUN_NUMBER-dev
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Install FPM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential
+          sudo gem install fpm
+
+      - name: Create .deb package
+        run: |
+          fpm -s dir -t deb \
+            -n "$PACKAGE_NAME" \
+            -v "${{ steps.version.outputs.VERSION }}" \
+            --iteration 1 \
+            --architecture amd64 \
+            --maintainer "${{ vars.MAINTAINER_EMAIL || 'maintainer@example.com' }}" \
+            --description "Statically linked tools" \
+            --vendor "${{ vars.VENDOR || 'my-org' }}" \
+            --license "MIT" \
+            --depends "ca-certificates" \
+            --prefix /usr/local/bin \
+            -C "${GITHUB_WORKSPACE}/static_binaries" \
+            .
+
+      - name: Create .rpm package
+        run: |
+          fpm -s dir -t rpm \
+            -n "$PACKAGE_NAME" \
+            -v "${{ steps.version.outputs.VERSION }}" \
+            --iteration 1 \
+            --architecture x86_64 \
+            --maintainer "${{ vars.MAINTAINER_EMAIL || 'maintainer@example.com' }}" \
+            --description "Statically linked tools" \
+            --vendor "${{ vars.VENDOR || 'my-org' }}" \
+            --license "MIT" \
+            --depends "ca-certificates" \
+            --prefix /usr/local/bin \
+            -C "${GITHUB_WORKSPACE}/static_binaries" \
+            .
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            *.deb
+            *.rpm
+          retention-days: 7
+
+  sign_packages:
+    needs: package_binaries
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: .
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          gpg --list-secret-keys
+
+      - name: Sign packages
+        run: |
+          for pkg in *.deb *.rpm; do
+            if [ -f "$pkg" ]; then
+              echo "${{ secrets.GPG_PASSPHRASE }}" | \
+                gpg --batch --yes --passphrase-fd 0 \
+                --pinentry-mode loopback \
+                --detach-sign --armor "$pkg"
+            fi
+          done
+
+      - name: Upload signed packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-packages
+          path: |
+            *.deb
+            *.rpm
+            *.asc
+          retention-days: 7
+
+  release:
+    needs: [package_binaries, sign_packages]
+    runs-on: ubuntu-latest
+    if: always() && needs.package_binaries.result == 'success'
+    steps:
+      - name: Determine release type
+        id: release_type
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "Creating release from tag"
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "Creating development release"
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.release_type.outputs.is_release == 'true' && 'signed-packages' || 'packages' }}
+          path: .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ env.PACKAGE_NAME }} ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ steps.release_type.outputs.is_release != 'true' }}
+          files: |
+            *.deb
+            *.rpm
+            *.asc
+          body: |
+            ## Installation
+            
+            ### Debian/Ubuntu
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.PACKAGE_NAME }}_*.deb
+            sudo dpkg -i ${{ env.PACKAGE_NAME }}_*.deb
+            ```
+            
+            ### RHEL/Fedora
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.PACKAGE_NAME }}-*.rpm
+            sudo rpm -ivh ${{ env.PACKAGE_NAME }}-*.rpm
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

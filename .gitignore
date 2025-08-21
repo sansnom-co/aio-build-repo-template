@@ -1,0 +1,32 @@
+# Build artifacts
+static_binaries/
+*.deb
+*.rpm
+*.asc
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.local
+
+# Claude.md (keep local)
+CLAUDE.md
+
+# Build directories
+build/
+dist/
+tmp/

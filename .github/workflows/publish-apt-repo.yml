@@ -1,0 +1,117 @@
+name: Publish APT Repository
+
+on:
+  workflow_run:
+    workflows: ["Build, Package, and Release"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: my-tools  # Change this to your package name
+
+jobs:
+  publish_repo:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Create gh-pages branch if it doesn't exist
+        run: |
+          if [ ! -d "gh-pages/.git" ]; then
+            echo "Creating new gh-pages branch..."
+            mkdir -p gh-pages
+            cd gh-pages
+            git init
+            git checkout -b gh-pages
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            touch .nojekyll
+            git add .nojekyll
+            git commit -m "Initial gh-pages branch"
+            git remote add origin https://github.com/${{ github.repository }}.git
+            cd ..
+          else
+            echo "gh-pages branch exists, cleaning it..."
+            cd gh-pages
+            find . -mindepth 1 -maxdepth 1 -name '.git' -prune -o -exec rm -rf {} +
+            cd ..
+          fi
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Import and export GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2)
+          echo "Imported key ID: $KEY_ID"
+          
+          if [ -n "$KEY_ID" ]; then
+            gpg --armor --export "$KEY_ID" > gh-pages/public_key.asc
+            echo "Public key exported successfully"
+          else
+            echo "ERROR: No GPG key imported"
+            exit 1
+          fi
+
+      - name: Create APT repository metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p gh-pages/dists/stable/main/binary-amd64
+          
+          cp main/scripts/create-packages-file.sh .
+          chmod +x create-packages-file.sh
+          ./create-packages-file.sh "${{ github.repository }}" "gh-pages/dists/stable/main/binary-amd64/Packages"
+
+      - name: Compress Packages file
+        run: |
+          cd gh-pages
+          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
+
+      - name: Create Release file
+        run: |
+          cp main/scripts/create-release-file.sh .
+          chmod +x create-release-file.sh
+          cd gh-pages/dists/stable
+          ../../../create-release-file.sh .
+
+      - name: Sign Release file
+        run: |
+          cd gh-pages/dists/stable
+          echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --detach-sign --armor -o Release.gpg Release
+          echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --clearsign -o InRelease Release
+
+      - name: Create repository index
+        run: |
+          cp main/scripts/create-repo-index.sh gh-pages/
+          cd gh-pages
+          chmod +x create-repo-index.sh
+          ./create-repo-index.sh
+          rm create-repo-index.sh
+
+      - name: Commit and push to gh-pages
+        run: |
+          cd gh-pages
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update APT repository [skip ci]"
+          git push origin gh-pages --force

@@ -1,0 +1,28 @@
+# Configuration for static binary builder
+# Customize this file for your project
+
+project:
+  name: "my-tools"  # Package name
+  description: "Collection of statically linked tools"
+  maintainer: "Your Name <your.email@example.com>"
+  vendor: "your-org"
+  
+# Tools to build and package
+tools:
+  - name: example-tool
+    repo: https://github.com/org/example-tool
+    build: |
+      # Build commands here
+      go build -ldflags "-s -w -extldflags '-static'" -o $INSTALL_DIR/example-tool ./cmd/example-tool
+    
+  - name: another-tool
+    repo: https://github.com/org/another-tool
+    build: |
+      # Custom build commands
+      make static DESTDIR=$INSTALL_DIR
+
+# Repository settings
+repository:
+  gpg_key_id: "YOUR_KEY_ID"
+  apt_suite: "stable"
+  apt_component: "main"
